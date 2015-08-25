@@ -37,11 +37,43 @@ long volatile g_max_idle_counter = 0;
 long volatile g_idle_counter = 0;
 long volatile g_switch_counter = 0;
 
-task_tbl_t g_task_tbl[MAX_TASK_NUMBER+1] = {0};
-task_tbl_t *current;
-task_tbl_t *g_ttx_task = NULL;
+task_struct_t g_task_tbl[MAX_TASK_NUMBER+1] = {0};
+task_struct_t *current;
+task_struct_t *g_ttx_task = NULL;
+lock_t g_test_lock = {0, NULL};
 
-static task_tbl_t  *wait_task = NULL;
+int lock_init( lock_t *lock)
+{
+    if( !lock)
+        return -1;
+
+    lock->locked = 0;
+    lock->wait_list = NULL;
+
+    return 0;
+}
+
+/*死等信号等到信号后解锁*/
+void lock(lock_t *lock) 
+{
+    /*使用前确保lock有初始化*/
+    cli();
+    while(lock->locked ) {
+        sleep_on(&lock->wait_list);
+    }
+    lock->locked = 1;
+    sti();
+}
+
+void unlock(lock_t *lock)
+{
+    if(!lock->locked)
+        printk("not locked befor\n");
+    lock->locked = 0;
+
+    wake_up(&lock->wait_list);
+    return;
+}
 
 void add_timer(long jiffies, void (*fn)(void))
 {
@@ -93,7 +125,7 @@ void restore_esp(void)
 void refresh_sleep_time(void)
 {
     int i;
-    task_tbl_t *p;
+    task_struct_t *p;
     
     for( i = 0; i <= MAX_TASK_NUMBER;i++) {
         p = &g_task_tbl[i];
@@ -191,7 +223,11 @@ void main_task(void)
         }
         /*处理mbuf queue*/
         g_switch_counter = 0;
-        delay(HZ);/*1 second*/
+        lock(&g_test_lock);
+        printk("main task\n");
+        unlock(&g_test_lock);
+        
+        delay(1*HZ);/*延时1 秒钟*/
     }
 }
 static void task1_timer(void)
@@ -209,6 +245,10 @@ void rx_task(void)
     int i = 0;
     struct sk_buff *skb;
     for(;;){
+        lock(&g_test_lock);
+        delay(200);
+        unlock(&g_test_lock);
+        
         skb = get_rx_skb();
         if( skb ) {
             rx_process(skb);
@@ -260,7 +300,8 @@ void tty_task(void)
                     break;
                 }
                 len++;                
-            }
+            }
+
        
         }           
         do_cmd(command_line);
@@ -348,7 +389,7 @@ void sched_init(void)
     int i;
     
     for(i = 0; i <= MAX_TASK_NUMBER; i++) {
-        memset((unsigned char*)&g_task_tbl[i], 0x0, sizeof(task_tbl_t));
+        memset((unsigned char*)&g_task_tbl[i], 0x0, sizeof(task_struct_t));
         g_task_tbl[i].task_id = i;
     }
     /*任务0*/
@@ -400,9 +441,9 @@ void sched_init(void)
     outb(inb_p(0x21)&~0x02, 0x21);
 
 }
-void sleep_on( task_tbl_t **p)
+void sleep_on( task_struct_t **p)
 {
-    task_tbl_t *tmp;
+    task_struct_t *tmp;
 
     if( !p)
         return;
@@ -424,7 +465,7 @@ void sleep_on( task_tbl_t **p)
         tmp->state = TASK_RUNNING;
 }
 
-void wake_up(task_tbl_t **p)
+void wake_up(task_struct_t **p)
 {
 	if (p && *p) {
 		(**p).state=0;
@@ -436,7 +477,7 @@ unsigned int schedule(void)
 {
     unsigned int i, next;
     int c;
-    task_tbl_t *p;
+    task_struct_t *p;
     unsigned int towice = 0;
     int current_id = current->task_id;
     while(1){
