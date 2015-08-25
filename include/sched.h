@@ -3,7 +3,7 @@
 #define HZ 100
 
 #define delay(ticks) __asm__ __volatile__ ("cli"::); \
-                                 current->sleep_time =  ticks; \
+                                 current->sleep_time =  (ticks); \
                                  __asm__ __volatile__ ("sti"::);    \
                                  __asm__ __volatile__ ("int $0x80"::);
                                  
@@ -45,7 +45,7 @@ typedef struct cbuf_s{
     void *message;
 }cbuf_t;
 
-typedef struct task_tbl_s{
+typedef struct task_struct_s{
     unsigned char task_id;
     unsigned int *task_func_p;
     unsigned int *task_stk;
@@ -58,13 +58,18 @@ typedef struct task_tbl_s{
     unsigned char tty_channel_id;
     my_queue_t cbuf_queue;
     my_queue_t mbuf_queue;
-}task_tbl_t;
+}task_struct_t;
 
-extern task_tbl_t *current;
-extern task_tbl_t *g_ttx_task;
+typedef struct lock_s {
+    unsigned char locked; /*0:Ã»Ëø, 1:Ëø*/
+    task_struct_t *wait_list;
+}lock_t;
+
+extern task_struct_t *current;
+extern task_struct_t *g_ttx_task;
 extern long volatile jiffies;
 unsigned int schedule(void);
-void sleep_on( task_tbl_t **p);
-void wake_up(task_tbl_t **p);
+void sleep_on( task_struct_t **p);
+void wake_up(task_struct_t **p);
 
 #endif
